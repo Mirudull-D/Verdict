@@ -22,4 +22,4 @@ const sendMessage = async (userMessage) => {
 };
 
 // Test it
-sendMessage("Explain React hooks in simple terms");
+sendMessage("Hi , how are you");
