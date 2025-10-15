@@ -6,8 +6,12 @@ const ChatContainer = () => {
   const [audioBlob, setAudioBlob] = useState(null);
   const [audioURL, setAudioURL] = useState("");
   const [transcription, setTranscription] = useState("");
+  const [analysis, setAnalysis] = useState(""); // NEW: LLM analysis
   const [loading, setLoading] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState("auto");
+  const [customInstruction, setCustomInstruction] = useState(
+    "Summarize and extract action items."
+  ); // NEW: custom prompt input
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -97,13 +101,16 @@ const ChatContainer = () => {
 
     setLoading(true);
     setTranscription("");
+    setAnalysis(""); // NEW: reset analysis
     console.log("📤 Sending audio to backend...");
     console.log("🌐 Selected language:", selectedLanguage);
+    console.log("📝 Custom instruction:", customInstruction);
 
     try {
       const formData = new FormData();
       formData.append("audio", audioBlob, "recording.webm");
       formData.append("language", selectedLanguage);
+      formData.append("instruction", customInstruction); // NEW: send custom prompt
 
       const response = await fetch("http://localhost:5000/api/transcribe", {
         method: "POST",
@@ -114,7 +121,9 @@ const ChatContainer = () => {
 
       if (data.success) {
         setTranscription(data.transcription);
+        setAnalysis(data.analysis); // NEW: set LLM analysis
         console.log("✅ Transcription received:", data.transcription);
+        console.log("✅ Analysis received:", data.analysis);
       } else {
         alert(`Error: ${data.error}`);
         console.error("❌ Transcription failed:", data.error);
@@ -138,7 +147,7 @@ const ChatContainer = () => {
     >
       <h2 style={{ textAlign: "center" }}>🎙️ Audio Recorder & Transcriber</h2>
       <p style={{ color: "#666", textAlign: "center", marginBottom: "30px" }}>
-        Supports English, Hindi (हिन्दी), and Tamil (தமிழ்)
+        Supports English, Hindi (हिन्दी), and Tamil (தமிழ்) with AI analysis
       </p>
 
       <div style={{ marginTop: "20px" }}>
@@ -184,6 +193,46 @@ const ChatContainer = () => {
           >
             💡 Tip: Use Auto-detect if you're not sure which language you'll
             speak
+          </p>
+        </div>
+
+        {/* NEW: Custom Instruction Input */}
+        <div style={{ marginBottom: "20px" }}>
+          <label
+            style={{
+              display: "block",
+              marginBottom: "8px",
+              fontWeight: "bold",
+              fontSize: "16px",
+            }}
+          >
+            🤖 AI Instruction (optional):
+          </label>
+          <textarea
+            value={customInstruction}
+            onChange={(e) => setCustomInstruction(e.target.value)}
+            placeholder="e.g., Summarize key points, Extract action items, Translate to English"
+            style={{
+              width: "100%",
+              padding: "12px",
+              fontSize: "15px",
+              borderRadius: "8px",
+              border: "2px solid #ddd",
+              resize: "vertical",
+              minHeight: "60px",
+              fontFamily: "Arial, sans-serif",
+              outline: "none",
+            }}
+          />
+          <p
+            style={{
+              fontSize: "13px",
+              color: "#888",
+              marginTop: "8px",
+              fontStyle: "italic",
+            }}
+          >
+            💡 Tell the AI what to do with your transcript
           </p>
         </div>
 
@@ -248,7 +297,7 @@ const ChatContainer = () => {
                   boxShadow: loading ? "none" : "0 2px 4px rgba(0,0,0,0.2)",
                 }}
               >
-                {loading ? "⏳ Transcribing..." : "📝 Transcribe Audio"}
+                {loading ? "⏳ Processing..." : "📝 Transcribe & Analyze"}
               </button>
             )}
           </div>
@@ -298,15 +347,50 @@ const ChatContainer = () => {
             </h3>
             <p
               style={{
-                fontSize: "18px",
+                fontSize: "16px",
                 lineHeight: "1.8",
                 color: "#1b5e20",
                 fontWeight: "500",
                 margin: "10px 0 0 0",
+                whiteSpace: "pre-wrap",
               }}
             >
               {transcription}
             </p>
+          </div>
+        )}
+
+        {/* NEW: AI Analysis Result */}
+        {analysis && (
+          <div
+            style={{
+              marginTop: "25px",
+              padding: "20px",
+              backgroundColor: "#e3f2fd",
+              borderRadius: "8px",
+              border: "2px solid #2196F3",
+            }}
+          >
+            <h3
+              style={{
+                marginTop: "0",
+                fontSize: "18px",
+                color: "#1565c0",
+              }}
+            >
+              🤖 AI Analysis:
+            </h3>
+            <div
+              style={{
+                fontSize: "16px",
+                lineHeight: "1.8",
+                color: "#0d47a1",
+                margin: "10px 0 0 0",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {analysis}
+            </div>
           </div>
         )}
       </div>
