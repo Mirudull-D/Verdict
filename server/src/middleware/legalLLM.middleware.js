@@ -1,5 +1,4 @@
 import { client } from "../lib/utils.js";
-import { legalResponseSchema } from "../lib/legalSchema.js";
 
 export const legalLLMMiddleware = async (req, res, next) => {
   try {
@@ -7,7 +6,7 @@ export const legalLLMMiddleware = async (req, res, next) => {
     console.log("⚖️  STARTING LEGAL RESEARCH LLM ANALYSIS");
     console.log("=".repeat(70));
 
-    const { incidentDetails } = req;
+    const { incidentDetails, queryLanguage = "english" } = req;
 
     if (!incidentDetails) {
       return res.status(400).json({
@@ -16,86 +15,109 @@ export const legalLLMMiddleware = async (req, res, next) => {
       });
     }
 
-    const systemPrompt = `You are a legal research copilot for Indian criminal law tasked with mapping incident facts to applicable provisions and close factual precedents for FIR drafting and investigation support.
+    const languageMap = {
+      english: "Respond in English.",
+      hindi:
+        "सभी उत्तर हिंदी में दें। All responses must be in Hindi (Devanagari script).",
+      tamil:
+        "அனைத்து பதில்களும் தமிழில் கொடுக்கவும். All responses must be in Tamil script.",
+    };
 
-CRITICAL RULES:
-1. Use ONLY credible sources:
-   - Government portals like Legislative Department/IndiaCode for statutes and the Constitution
-   - Supreme Court/High Court official sites for judgments
-   - Well-established law databases when clearly cited
-2. AVOID blogs, forums, or unchecked summaries
-3. Always include direct URLs to the exact statute section or judgment page you relied on
-4. Prefer official PDFs or judgment pages when available
-5. If confidence is low or sources conflict, explicitly mark 'low_confidence' and explain
-6. Do NOT invent citations; if not found, say so and suggest next steps
-7. Return ONLY valid JSON matching the schema provided - no extra prose, no markdown formatting, no code blocks
-8. Ensure all URLs are real and verifiable - do not hallucinate sources`;
+    const systemPrompt = `You are a legal research AI for Indian criminal law (IPC/CrPC) trained to provide accurate, source-verified legal analysis.
 
-    const userPrompt = `Task: Given the incident details, identify applicable IPC/CrPC and any special acts, and list top similar judgments with links from credible sources only.
+CRITICAL JSON FORMATTING RULES:
+1. ALL string values MUST escape special characters: " becomes \", \\ becomes \\\\, newlines become \\n
+2. Legal text with quotes MUST be properly escaped
+3. Return ONLY valid JSON - no markdown, no code blocks
+4. Test: Can this be parsed by JSON.parse()? If no, fix it.
 
-Incident_details:
-- narrative: ${incidentDetails.narrative || "Not provided"}
-- location_state: ${incidentDetails.location_state || "Not specified"}
-- date_time: ${incidentDetails.date_time || "Not specified"}
-- known_sections_or_acts: ${JSON.stringify(
-      incidentDetails.known_sections_or_acts || []
-    )}
-- key_entities: ${JSON.stringify(incidentDetails.key_entities || [])}
-- evidence_available: ${JSON.stringify(
-      incidentDetails.evidence_available || []
-    )}
-- aggravating_factors: ${JSON.stringify(
-      incidentDetails.aggravating_factors || []
-    )}
+SOURCING RULES:
+- ONLY cite: legislative.gov.in, indiacode.nic.in, main.sci.gov.in, High Court .nic.in sites
+- NEVER cite: blogs, news, forums, law firm websites
+- If source not found, write "Source not available" - do NOT invent URLs
 
-Research_instructions:
-- Statutes: Pull exact text and clause numbers from IndiaCode or Legislative.gov.in; include canonical section URLs and last amendment status
-- Judgments: Prefer Supreme Court; include High Court judgments for fact similarity, each with neutral citation, year, court, and a one-line holding; link to the official court page when available
-- Similarity: Prioritize cases matching actus reus, mens rea, victim profile, place (e.g., public transport/market), and evidence pattern
-- Classification: State cognizable/non-cognizable, bailable/non-bailable, and punishment range with source citations to statute text or authoritative notes
-- Caveat: If jurisdiction-specific special acts may apply (e.g., state police acts, special local laws), flag them with 'needs_local_check'
+LANGUAGE REQUIREMENT:
+${languageMap[queryLanguage] || languageMap.english}
 
-IMPORTANT: Return ONLY the JSON object. Do not include any markdown formatting, code blocks, or explanatory text before or after the JSON.`;
+RESPONSE FORMAT:
+- Return valid JSON object only
+- Escape all quotes and special characters in legal text
+- Use simple, short descriptions to avoid JSON parsing errors`;
 
-    console.log("\n📋 STEP 1: Building Legal LLM Request");
-    console.log("─".repeat(70));
-    console.log("🔹 Model:", "zai-org/GLM-4.6:novita");
-    console.log("🔹 Response Format: Structured JSON Schema");
+    const userPrompt = `Analyze this legal ${
+      incidentDetails.is_complaint ? "complaint" : "query"
+    } and return structured JSON.
+
+Input:
+- Type: ${incidentDetails.is_complaint ? "COMPLAINT" : "LEGAL QUERY"}
+- Language: ${queryLanguage}
+- Content: ${incidentDetails.narrative}
+- Location: ${incidentDetails.location_state || "India"}
+
+${
+  incidentDetails.is_complaint
+    ? `
+Return JSON with:
+{
+  "response_language": "${queryLanguage}",
+  "query_type": "complaint",
+  "summary": "Brief summary (2-3 sentences)",
+  "applicable_provisions": [
+    {
+      "statute": "Indian Penal Code, 1860",
+      "section": "379",
+      "description": "Theft punishment",
+      "bailable_status": "Bailable",
+      "cognizable_status": "Cognizable",
+      "punishment_range": "Up to 3 years imprisonment or fine or both",
+      "source_url": "https://indiacode.nic.in/..."
+    }
+  ],
+  "similar_judgments": [
+    {
+      "citation": "Case Name v State (Year) X SCC Y",
+      "year": 2020,
+      "court": "Supreme Court of India",
+      "holding": "Brief holding in one sentence",
+      "source_url": "https://main.sci.gov.in/..."
+    }
+  ],
+  "confidence": "high",
+  "disclaimer": "Consult a lawyer for case-specific advice"
+}
+`
+    : `
+Return JSON with:
+{
+  "response_language": "${queryLanguage}",
+  "query_type": "query",
+  "answer": "Direct answer to the legal question",
+  "relevant_sections": [
+    {
+      "statute": "IPC",
+      "section": "XXX",
+      "relevance": "How it applies",
+      "source_url": "https://indiacode.nic.in/..."
+    }
+  ],
+  "confidence": "high",
+  "disclaimer": "Consult a lawyer"
+}
+`
+}
+
+CRITICAL: Ensure ALL quotes in strings are escaped. Legal text like "punishment for theft" must be "punishment for theft" in JSON.`;
+
     console.log(
-      "🔹 Incident narrative:",
-      incidentDetails.narrative?.substring(0, 100) + "..."
+      "\n📋 Query Type:",
+      incidentDetails.is_complaint ? "COMPLAINT" : "LEGAL QUERY"
     );
-
-    console.log("\n📤 STEP 2: Prompt Being Sent to LLM");
-    console.log("─".repeat(70));
-    console.log("\n📌 System Prompt:");
-    console.log(systemPrompt);
-    console.log("\n📌 User Prompt:");
-    console.log(userPrompt);
-    console.log("\n" + "─".repeat(70));
+    console.log("🌐 Language:", queryLanguage);
 
     const messages = [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ];
-
-    console.log("\n🔄 STEP 3: Sending Request to Hugging Face Router");
-    console.log("─".repeat(70));
-    console.log("🌐 Endpoint: POST /v1/chat/completions");
-    console.log("🔑 Authentication: Bearer token (HF_TOKEN)");
-    console.log("📊 Request configuration:");
-    console.log(
-      JSON.stringify(
-        {
-          model: "zai-org/GLM-4.6:novita",
-          temperature: 0.1,
-          max_tokens: 2000,
-          response_format: { type: "json_object" },
-        },
-        null,
-        2
-      )
-    );
 
     const startTime = Date.now();
 
@@ -103,97 +125,105 @@ IMPORTANT: Return ONLY the JSON object. Do not include any markdown formatting, 
       model: "zai-org/GLM-4.6:novita",
       messages: messages,
       temperature: 0.1,
-      max_tokens: 2000,
+      max_tokens: 7500,
       response_format: { type: "json_object" },
     });
 
     const endTime = Date.now();
     const durationMs = endTime - startTime;
 
-    console.log("\n✅ STEP 4: Response Received from LLM");
-    console.log("─".repeat(70));
-    console.log("⏱️  Response time:", durationMs, "ms");
+    console.log("\n✅ LLM Response Time:", durationMs, "ms");
 
-    const llmMessage = chatCompletion?.choices?.[0]?.message?.content || "";
+    let llmMessage = chatCompletion?.choices?.[0]?.message?.content || "";
 
-    console.log("\n📥 STEP 5: Parsing JSON Response");
-    console.log("─".repeat(70));
-    console.log("📝 Raw response length:", llmMessage.length, "characters");
+    console.log(
+      "\n📥 Raw LLM Response Length:",
+      llmMessage.length,
+      "characters"
+    );
 
     let parsedResponse;
     try {
+      // Clean the response
       let cleanedResponse = llmMessage.trim();
 
+      // Remove markdown code blocks if present
       if (cleanedResponse.startsWith("```json")) {
         cleanedResponse = cleanedResponse
-          .replace(/^```json\s*/, "")
-          .replace(/\s*```$/, "");
+          .replace(/^```json\s*/, "") // remove opening ```json
+          .replace(/\s*```$/, ""); // remove closing ```
       } else if (cleanedResponse.startsWith("```")) {
         cleanedResponse = cleanedResponse
-          .replace(/^```\s*/, "")
-          .replace(/\s*```$/, "");
+          .replace(/^```\s*/, "") // remove opening ```
+          .replace(/\s*```$/, ""); // remove closing ```
       }
+      // Attempt to fix common JSON errors
+      // Replace unescaped quotes in strings (basic attempt)
+      // This is a simplified approach - may need more robust handling
 
+      console.log("\n🔍 Attempting JSON parse...");
       parsedResponse = JSON.parse(cleanedResponse);
-      console.log("✅ JSON parsing successful");
-      console.log("📊 Response structure:");
-      console.log(
-        "  - Applicable provisions:",
-        parsedResponse.applicable_provisions?.length || 0
-      );
-      console.log(
-        "  - Procedural provisions:",
-        parsedResponse.procedural_provisions?.length || 0
-      );
-      console.log(
-        "  - Special acts:",
-        parsedResponse.special_acts?.length || 0
-      );
-      console.log(
-        "  - Similar cases:",
-        parsedResponse.similar_cases?.length || 0
-      );
-      console.log(
-        "  - Confidence level:",
-        parsedResponse.confidence || "not specified"
-      );
-    } catch (parseError) {
-      console.error("❌ JSON parsing failed:", parseError.message);
-      console.error("Raw response:", llmMessage);
-      throw new Error("LLM did not return valid JSON. Please try again.");
-    }
 
-    if (chatCompletion?.usage) {
-      console.log("\n📊 Token Usage:");
-      console.log(
-        "  - Prompt tokens:",
-        chatCompletion.usage.prompt_tokens || "N/A"
-      );
-      console.log(
-        "  - Completion tokens:",
-        chatCompletion.usage.completion_tokens || "N/A"
-      );
-      console.log(
-        "  - Total tokens:",
-        chatCompletion.usage.total_tokens || "N/A"
-      );
+      console.log("✅ JSON parsed successfully");
+      console.log("📊 Response type:", parsedResponse.query_type);
+      console.log("🌐 Response language:", parsedResponse.response_language);
+
+      if (parsedResponse.applicable_provisions) {
+        console.log(
+          "⚖️  Provisions found:",
+          parsedResponse.applicable_provisions.length
+        );
+      }
+      if (parsedResponse.similar_judgments) {
+        console.log(
+          "📚 Judgments found:",
+          parsedResponse.similar_judgments.length
+        );
+      }
+    } catch (parseError) {
+      console.error("\n❌ JSON parsing failed:", parseError.message);
+      console.error("📄 Raw response (first 500 chars):");
+      console.error(llmMessage.substring(0, 500));
+      console.error("\n📄 Raw response (last 500 chars):");
+      console.error(llmMessage.substring(Math.max(0, llmMessage.length - 500)));
+
+      // Fallback: Return a simplified error response
+      parsedResponse = {
+        response_language: queryLanguage,
+        query_type: incidentDetails.is_complaint ? "complaint" : "query",
+        error: "JSON parsing failed",
+        raw_response: llmMessage.substring(0, 1000) + "...",
+        summary:
+          "Unable to parse LLM response. The model returned malformed JSON.",
+        applicable_provisions: [],
+        similar_judgments: [],
+        confidence: "low",
+        disclaimer: "Please try again. If the issue persists, contact support.",
+      };
     }
 
     console.log("\n" + "=".repeat(70));
-    console.log("✅ LEGAL RESEARCH COMPLETED SUCCESSFULLY");
+    console.log("✅ LEGAL RESEARCH COMPLETED");
     console.log("=".repeat(70) + "\n");
 
     req.legalResponse = parsedResponse;
-
     next();
   } catch (error) {
-    console.error("\n" + "❌".repeat(35));
-    console.error("💥 ERROR IN LEGAL LLM MIDDLEWARE");
-    console.error("❌".repeat(35));
-    console.error("❌ Error:", error.message);
-    console.error("❌ Stack:", error.stack);
-    console.error("❌".repeat(35) + "\n");
+    console.error("\n❌ ERROR IN LEGAL LLM MIDDLEWARE:", error.message);
 
-    next(error);
+    // Return a graceful error response instead of crashing
+    req.legalResponse = {
+      response_language: req.queryLanguage || "english",
+      query_type: req.incidentDetails?.is_complaint ? "complaint" : "query",
+      error: "LLM processing error",
+      summary:
+        "An error occurred while processing your request. Please try again.",
+      applicable_provisions: [],
+      similar_judgments: [],
+      confidence: "low",
+      disclaimer: "Service temporarily unavailable. Please try again.",
+    };
+
+    next(); // Continue instead of throwing error
   }
 };

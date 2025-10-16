@@ -16,27 +16,18 @@ export const transcribeMiddleware = async (req, res, next) => {
     }
 
     console.log("📊 Audio buffer size:", audioBuffer.length, "bytes");
+    console.log("🌐 Requested language:", language);
+    console.log("ℹ️  Note: Whisper will auto-detect language");
 
-    let apiUrl =
+    const apiUrl =
       "https://api-inference.huggingface.co/models/openai/whisper-large-v3";
-
-    if (language !== "auto") {
-      const languageMap = {
-        english: "en",
-        hindi: "hi",
-        tamil: "ta",
-      };
-      const whisperLangCode = languageMap[language] || language;
-      apiUrl += `?language=${whisperLangCode}`;
-      console.log("🌐 Using language code:", whisperLangCode);
-    } else {
-      console.log("🌐 Using automatic language detection");
-    }
 
     console.log("🔄 Sending to Hugging Face Whisper API:", apiUrl);
 
     const startTime = Date.now();
 
+    // Send raw audio buffer - Whisper will auto-detect language
+    // DO NOT send language parameter - it's not supported
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
@@ -85,6 +76,7 @@ export const transcribeMiddleware = async (req, res, next) => {
     console.log("✅ Transcription extracted:", transcript);
     console.log("=".repeat(70) + "\n");
 
+    // Attach transcript to request
     req.transcript = transcript;
 
     next();

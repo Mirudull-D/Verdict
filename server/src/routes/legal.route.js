@@ -8,44 +8,40 @@ const prepareLegalQuery = (req, res, next) => {
   const {
     narrative,
     location_state,
-    date_time,
-    known_sections_or_acts,
-    key_entities,
     evidence_available,
     aggravating_factors,
+    language = "english",
+    is_complaint = true, // true = complaint, false = legal query
     enableTTS = false,
   } = req.body;
 
   if (!narrative || narrative.trim() === "") {
     return res.status(400).json({
       success: false,
-      error: "Incident narrative is required",
-      hint: "Please provide a description of the legal incident or situation",
+      error: "Content is required (complaint or legal question)",
     });
   }
 
-  console.log("⚖️  Legal query received");
-  console.log("📝 Narrative:", narrative.substring(0, 100) + "...");
-  console.log("🌍 Location:", location_state || "Not specified");
-  console.log("🔊 TTS Enabled:", enableTTS);
+  console.log("⚖️  Legal request received");
+  console.log("📝 Type:", is_complaint ? "COMPLAINT" : "LEGAL QUERY");
+  console.log("🌐 Language:", language);
+  console.log("📄 Content:", narrative.substring(0, 100) + "...");
 
   const incidentDetails = {
     narrative,
-    location_state: location_state || "India (unspecified state)",
-    date_time: date_time || new Date().toISOString(),
-    known_sections_or_acts: Array.isArray(known_sections_or_acts)
-      ? known_sections_or_acts
-      : [],
-    key_entities: Array.isArray(key_entities) ? key_entities : [],
+    location_state: location_state || "India",
+    date_time: new Date().toISOString(),
     evidence_available: Array.isArray(evidence_available)
       ? evidence_available
       : [],
     aggravating_factors: Array.isArray(aggravating_factors)
       ? aggravating_factors
       : [],
+    is_complaint: is_complaint,
   };
 
   req.incidentDetails = incidentDetails;
+  req.queryLanguage = language;
   req.enableTTS = enableTTS;
   req.originalNarrative = narrative;
 
@@ -55,7 +51,9 @@ const prepareLegalQuery = (req, res, next) => {
 const finalHandler = (req, res) => {
   const response = {
     success: true,
-    incident_narrative: req.originalNarrative,
+    query_type: req.incidentDetails.is_complaint ? "complaint" : "query",
+    language: req.queryLanguage,
+    content: req.originalNarrative,
     legal_analysis: req.legalResponse,
     timestamp: new Date().toISOString(),
   };
@@ -64,7 +62,6 @@ const finalHandler = (req, res) => {
     response.audio = {
       fileName: req.ttsAudioFileName,
       url: `/audio/${req.ttsAudioFileName}`,
-      description: "Text-to-speech audio of the legal summary",
     };
   }
 
@@ -76,15 +73,17 @@ const prepareTTSText = (req, res, next) => {
     return next();
   }
 
-  const ttsText = `Legal Analysis Summary: ${req.legalResponse.summary}. 
-  
-Applicable Provisions: ${req.legalResponse.applicable_provisions
-    .map((p) => p.code)
-    .join(", ")}. 
-  
-Confidence Level: ${req.legalResponse.confidence}. 
-  
-${req.legalResponse.disclaimer}`;
+  let ttsText = "";
+
+  if (req.incidentDetails.is_complaint) {
+    ttsText = `Legal Analysis. ${
+      req.legalResponse.summary || ""
+    }. Applicable provisions: ${
+      req.legalResponse.applicable_provisions?.length || 0
+    } sections found.`;
+  } else {
+    ttsText = req.legalResponse.answer || "Legal query response ready.";
+  }
 
   req.llmResponse = ttsText;
   next();
