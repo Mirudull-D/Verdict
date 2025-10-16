@@ -85,7 +85,6 @@ export const transcribeMiddleware = async (req, res, next) => {
     console.log("✅ Transcription extracted:", transcript);
     console.log("=".repeat(70) + "\n");
 
-    // Attach transcript to request for next middleware
     req.transcript = transcript;
 
     next();

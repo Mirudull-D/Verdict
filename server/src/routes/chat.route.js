@@ -1,11 +1,12 @@
 import express from "express";
+import fs from "fs";
 import { llmMiddleware } from "../middleware/llm.middleware.js";
+import { ttsMiddleware } from "../middleware/tts.middleware.js";
 
 const router = express.Router();
 
-// Pre-processing middleware: Validate and prepare chat request
 const prepareChatRequest = (req, res, next) => {
-  const { question, language } = req.body;
+  const { question, language, enableTTS = false } = req.body;
 
   if (!question || question.trim() === "") {
     return res.status(400).json({
@@ -17,6 +18,7 @@ const prepareChatRequest = (req, res, next) => {
   console.log("💬 Chat request received");
   console.log("📝 Question:", question);
   console.log("🌐 Language:", language || "Not specified");
+  console.log("🔊 TTS Enabled:", enableTTS);
 
   const languageNames = {
     auto: "Auto-detected",
@@ -28,26 +30,44 @@ const prepareChatRequest = (req, res, next) => {
   const langForContext = languageNames[language] || "English";
   const userMessage = `Language: ${langForContext}\nUser Question:\n"""${question}"""`;
 
-  // Attach data to request for middleware
   req.userMessage = userMessage;
   req.languageContext = langForContext;
   req.originalQuestion = question;
+  req.enableTTS = enableTTS;
 
   next();
 };
 
-// Final handler: Send response
 const finalHandler = (req, res) => {
-  res.json({
+  const response = {
     success: true,
     question: req.originalQuestion,
     language: req.languageContext,
     response: req.llmResponse,
     timestamp: new Date().toISOString(),
-  });
+  };
+
+  if (req.ttsAudioFileName) {
+    response.audio = {
+      fileName: req.ttsAudioFileName,
+      url: `/audio/${req.ttsAudioFileName}`,
+    };
+  }
+
+  res.json(response);
 };
 
-// Route with middleware chain
-router.post("/", prepareChatRequest, llmMiddleware, finalHandler);
+router.post(
+  "/",
+  prepareChatRequest,
+  llmMiddleware,
+  (req, res, next) => {
+    if (req.enableTTS) {
+      return ttsMiddleware(req, res, next);
+    }
+    next();
+  },
+  finalHandler
+);
 
 export default router;

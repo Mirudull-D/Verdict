@@ -4,10 +4,10 @@ import path from "path";
 import { upload, convertToWav } from "../lib/utils.js";
 import { transcribeMiddleware } from "../middleware/transcribe.middleware.js";
 import { llmMiddleware } from "../middleware/llm.middleware.js";
+import { ttsMiddleware } from "../middleware/tts.middleware.js";
 
 const router = express.Router();
 
-// Pre-processing middleware: Handle file upload and conversion
 const preprocessAudio = async (req, res, next) => {
   let filePath = null;
   let wavPath = null;
@@ -21,9 +21,11 @@ const preprocessAudio = async (req, res, next) => {
     }
 
     const language = req.body.language || "auto";
+    const enableTTS = req.body.enableTTS === "true" || false;
 
     console.log("📁 File received:", req.file);
     console.log("🌐 Language selected by user:", language);
+    console.log("🔊 TTS Enabled:", enableTTS);
 
     filePath = req.file.path;
     wavPath = path.join("uploads", `${req.file.filename}.wav`);
@@ -34,16 +36,15 @@ const preprocessAudio = async (req, res, next) => {
     console.log("🔄 Reading WAV file...");
     const audioBuffer = fs.readFileSync(wavPath);
 
-    // Attach data to request for middleware chain
     req.audioBuffer = audioBuffer;
     req.language = language;
     req.filePath = filePath;
     req.wavPath = wavPath;
     req.originalFile = req.file;
+    req.enableTTS = enableTTS;
 
     next();
   } catch (error) {
-    // Cleanup on error
     if (filePath && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
@@ -55,13 +56,12 @@ const preprocessAudio = async (req, res, next) => {
   }
 };
 
-// Middleware: Prepare LLM message from transcript
 const prepareLLMMessage = (req, res, next) => {
   const languageNames = {
     auto: "Auto-detected",
     english: "English",
     hindi: "Hindi (हिन्दी)",
-    tamil: "Tamil (தமिழ்)",
+    tamil: "Tamil (தமிழ்)",
   };
 
   const langForContext = languageNames[req.language] || req.language;
@@ -73,7 +73,6 @@ const prepareLLMMessage = (req, res, next) => {
   next();
 };
 
-// Final handler: Send response and cleanup
 const finalHandler = (req, res) => {
   const languageNames = {
     auto: "Auto-detected",
@@ -84,7 +83,7 @@ const finalHandler = (req, res) => {
 
   const langForContext = languageNames[req.language] || req.language;
 
-  res.json({
+  const response = {
     success: true,
     transcription: req.transcript,
     language: langForContext,
@@ -93,9 +92,18 @@ const finalHandler = (req, res) => {
     fileSize: req.originalFile.size,
     analysis: req.llmResponse,
     timestamp: new Date().toISOString(),
-  });
+  };
 
-  // Cleanup temporary files
+  if (req.ttsAudioFileName) {
+    response.audio = {
+      fileName: req.ttsAudioFileName,
+      url: `/audio/${req.ttsAudioFileName}`,
+      description: "Text-to-speech audio of the analysis",
+    };
+  }
+
+  res.json(response);
+
   if (req.filePath && fs.existsSync(req.filePath)) {
     fs.unlinkSync(req.filePath);
   }
@@ -105,7 +113,6 @@ const finalHandler = (req, res) => {
   console.log("🗑️ Temporary files deleted");
 };
 
-// Route with middleware chain
 router.post(
   "/",
   upload.single("audio"),
@@ -113,6 +120,12 @@ router.post(
   transcribeMiddleware,
   prepareLLMMessage,
   llmMiddleware,
+  (req, res, next) => {
+    if (req.enableTTS) {
+      return ttsMiddleware(req, res, next);
+    }
+    next();
+  },
   finalHandler
 );
 

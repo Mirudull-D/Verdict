@@ -1,13 +1,21 @@
 import express from "express";
 import fs from "fs";
 import cors from "cors";
-
+import path from "path";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
 
 // Import routes
 import transcribeRoute from "./src/routes/transcribe.route.js";
 import chatRoute from "./src/routes/chat.route.js";
+import legalRoute from "./src/routes/legal.route.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config();
 
 ffmpeg.setFfmpegPath(ffmpegStatic);
 
@@ -23,23 +31,51 @@ if (!fs.existsSync("uploads")) {
   console.log("📁 Created uploads directory");
 }
 
+// Serve audio files
+app.use("/audio", express.static(path.join(__dirname, "uploads")));
+
 // Root endpoint
 app.get("/", (req, res) => {
   res.json({
-    message: "🎙️ Audio Transcription & Chat Server is running!",
+    message: "⚖️  Legal Assistant API for Police Officers",
     status: "active",
+    description:
+      "AI-powered legal research assistant for Indian criminal law (IPC/CrPC)",
     endpoints: {
+      legal: {
+        path: "/api/legal",
+        method: "POST",
+        description:
+          "Submit incident details and get applicable IPC/CrPC sections, case law, and investigation tips",
+        accepts: "application/json",
+        required_fields: ["narrative"],
+        optional_fields: [
+          "location_state",
+          "date_time",
+          "known_sections_or_acts",
+          "key_entities",
+          "evidence_available",
+          "aggravating_factors",
+          "enableTTS",
+        ],
+      },
       transcribe: {
         path: "/api/transcribe",
         method: "POST",
-        description: "Upload audio, transcribe, and get AI analysis",
-        accepts: "multipart/form-data (audio file + language)",
+        description:
+          "Upload audio complaint/statement, transcribe, and get AI analysis",
+        accepts: "multipart/form-data (audio file + language + enableTTS)",
       },
       chat: {
         path: "/api/chat",
         method: "POST",
-        description: "Send text question and get AI response",
-        accepts: "application/json (question + language)",
+        description: "General legal questions in text format",
+        accepts: "application/json (question + language + enableTTS)",
+      },
+      audio: {
+        path: "/audio/:filename",
+        method: "GET",
+        description: "Stream generated TTS audio files",
       },
     },
     supportedLanguages: [
@@ -48,11 +84,21 @@ app.get("/", (req, res) => {
       "Tamil (தமிழ்)",
       "Auto-detect",
     ],
+    features: [
+      "IPC/CrPC Section Mapping",
+      "Similar Case Law Search",
+      "Investigation Tips",
+      "Source Verification",
+      "Speech-to-Text for Complaints",
+      "Text-to-Speech for Reports",
+      "Multi-language Support",
+    ],
     timestamp: new Date().toISOString(),
   });
 });
 
 // Mount routes
+app.use("/api/legal", legalRoute);
 app.use("/api/transcribe", transcribeRoute);
 app.use("/api/chat", chatRoute);
 
@@ -85,20 +131,23 @@ app.use((req, res) => {
   res.status(404).json({
     success: false,
     error: "Route not found",
+    available_endpoints: ["/api/legal", "/api/transcribe", "/api/chat"],
   });
 });
 
 app.listen(PORT, () => {
   console.log(`
   ╔═══════════════════════════════════════════╗
-  ║  🎙️  Audio Transcription Server Started    ║
+  ║  ⚖️   Legal Assistant API Started          ║
   ╠═══════════════════════════════════════════╣
   ║  Server: http://localhost:${PORT}            ║
   ║  Endpoints:                               ║
+  ║    - POST /api/legal (IPC/CrPC research)  ║
   ║    - POST /api/transcribe (audio)         ║
-  ║    - POST /api/chat (text only)           ║
+  ║    - POST /api/chat (general questions)   ║
+  ║    - GET /audio/:filename (TTS)           ║
   ║  Languages: English, Hindi, Tamil         ║
-  ║  Engine: HF Whisper + LLM (router)        ║
+  ║  Engine: HF Whisper + LLM + Legal AI      ║
   ║  Status: ✅ Ready                         ║
   ╚═══════════════════════════════════════════╝
   `);

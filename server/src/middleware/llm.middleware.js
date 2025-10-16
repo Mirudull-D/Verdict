@@ -1,6 +1,5 @@
 import { client } from "../lib/utils.js";
 
-// Middleware: LLM Analysis
 export const llmMiddleware = async (req, res, next) => {
   try {
     console.log("\n" + "=".repeat(70));
@@ -107,7 +106,6 @@ export const llmMiddleware = async (req, res, next) => {
     console.log("✅ LLM ANALYSIS COMPLETED SUCCESSFULLY");
     console.log("=".repeat(70) + "\n");
 
-    // Attach LLM response to request for final route handler
     req.llmResponse = llmMessage;
 
     next();
